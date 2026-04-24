@@ -1,5 +1,6 @@
 ﻿using Application.DTOs;
 using Application.Interfaces;
+using Core_Infrastructure.ExternalApis.GithubApi.Models;
 using Domain.Entities;
 using System.Text.Json;
 

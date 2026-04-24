@@ -1,5 +1,6 @@
 ﻿using Application.Interfaces;
 using Application.Services;
+using Core_Infrastructure.Caching;
 using Infrastructure.ExternalApis.GithubApi;
 using Infrastructure.ExternalApis.NewsApi;
 using Infrastructure.ExternalApis.WeatherApi;
@@ -16,9 +17,9 @@ namespace Core_Infrastructure.Extensions
             this IServiceCollection services,
             IConfiguration config)
         {
-            //services.AddMemoryCache();
+            services.AddMemoryCache();
 
-            //services.AddScoped<ICacheService, MemoryCacheService>();
+            services.AddScoped<ICacheService, MemoryCacheService>();
             services.AddSingleton<IApiMetricsService, ApiMetricsService>();
 
             services.AddHttpClient<NewsApiClient>()

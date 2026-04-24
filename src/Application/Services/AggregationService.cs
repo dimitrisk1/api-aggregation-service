@@ -4,22 +4,38 @@
     using Application.DTOs;
     using Application.Interfaces;
     using Domain.Entities;
+    using Domain.Interfaces;
     using System.Diagnostics;
+    using System.IO;
 
 
     public class AggregationService : IAggregationService
     {
+        private readonly IEnumerable<IExternalProvider> _providers;
         private readonly IEnumerable<IExternalApiClient> _clients;
         private readonly IApiMetricsService _metrics;
 
         public AggregationService(
             IEnumerable<IExternalApiClient> clients,
-            IApiMetricsService metrics)
+            IApiMetricsService metrics,
+            IEnumerable<IExternalProvider> providers)
         {
             _clients = clients;
             _metrics = metrics;
+            _providers = providers;
         }
 
+
+        public async Task<IEnumerable<AggregatedResponse>> GetUnifiedDataAsync(FilterOptions options)
+        {
+            var tasks = _providers.Select(p => p.GetDataAsync(default));
+            var results = await Task.WhenAll(tasks);
+
+            // Logic for filtering/sorting stays here, NOT in the controller
+            return results.SelectMany(x => x)
+                          .Where(x => x.Category == options.Category)
+                          .OrderBy(x => x.Date);
+        }
         public async Task<AggregatedResponse> HandleAsync(AggregationRequest request)
         {
             var tasks = _clients.Select(client => ExecuteClient(client, request));
