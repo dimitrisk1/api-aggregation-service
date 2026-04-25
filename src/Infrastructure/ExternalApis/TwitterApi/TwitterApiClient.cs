@@ -1,35 +1,41 @@
-﻿using Application.DTOs;
-using Application.Interfaces;
-using Domain.Entities;
+﻿using Domain.Entities;
+using Domain.Interfaces;
 using Infrastructure.ExternalApis.TwitterApi.Models;
-using Microsoft.Extensions.Configuration;
+using System.Diagnostics;
 using System.Net.Http.Json;
 
-namespace Infrastructure.ExternalApis.TwitterApi
+namespace ApiAggregator.Infrastructure.Clients;
+
+public class TwitterApiClient : IExternalProvider
 {
-    public class TwitterClient : IExternalApiClient
+    private readonly HttpClient _httpClient;
+    public string ProviderName => "Twitter";
+
+    public TwitterApiClient(HttpClient httpClient) => _httpClient = httpClient;
+
+    public async Task<Domain.Models.ProviderResult<IEnumerable<UnifiedItem>>> FetchDataAsync(string query, CancellationToken cancellationToken)
     {
-        private readonly HttpClient _httpClient;
-        public string Name => "Twitter";
-
-        public TwitterClient(HttpClient httpClient, IConfiguration config)
+        var stopwatch = Stopwatch.StartNew();
+        try
         {
-            _httpClient = httpClient;
+            var response = await _httpClient.GetFromJsonAsync<TwitterSearchResponse>($"tweets/search/recent?query={query}", cancellationToken);
 
-            // Setup Base Address and Headers
-            _httpClient.BaseAddress = new Uri("https://api.twitter.com/2/");
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {config["Twitter:BearerToken"]}");
+            var unifiedItems = response?.Data?.Select(tweet => new UnifiedItem
+            {
+                Source = ProviderName,                       
+                Title = tweet.Text ?? "Empty Tweet",         
+                Category = "Social Media",                 
+                Date = tweet.CreatedAt                      
+            }) ?? Enumerable.Empty<UnifiedItem>();
+
+            return new Domain.Models.ProviderResult<IEnumerable<UnifiedItem>> { IsSuccess = true, Data = unifiedItems, Latency = stopwatch.Elapsed };
         }
-
-
-        public async Task<IEnumerable<UnifiedItem>> FetchAsync(AggregationRequest request)
+        catch (Exception ex)
         {
-            var response = await _httpClient.GetAsync($"tweets/search/recent?query={Uri.EscapeDataString(request.Query)}");
-
-            response.EnsureSuccessStatusCode();
-
-            var data = await response.Content.ReadFromJsonAsync<TweetResponse>();
-            return null;
-        }  
+            return new Domain.Models.ProviderResult<IEnumerable<UnifiedItem>> { IsSuccess = false, ErrorMessage = ex.Message, Latency = stopwatch.Elapsed };
+        }
     }
+
+
+
 }

@@ -6,13 +6,14 @@ namespace Core_Infrastructure.ExternalApis.NewsApi.Models
 {
     public class NewsApiResponse
     {
-        [JsonPropertyName("status")]
-        public string Status { get; set; }
-
-        [JsonPropertyName("totalResults")]
-        public int TotalResults { get; set; }
-
-        [JsonPropertyName("articles")]
-        public List<Article> Articles { get; set; } = new();
+        public List<NewsArticle>? Articles { get; set; }
     }
+
+    public class NewsArticle
+    {
+        public string? Headline { get; set; }
+        public string? Summary { get; set; }
+        public DateTime PublishedAt { get; set; }
+    }
+
 }

@@ -1,42 +1,40 @@
 ﻿using Application.DTOs;
-using Application.Interfaces;
 using Core_Infrastructure.ExternalApis.GithubApi.Models;
 using Domain.Entities;
-using System.Text.Json;
+using Domain.Interfaces;
+using System.Diagnostics;
+using System.Net.Http.Json;
 
-namespace Infrastructure.ExternalApis.GithubApi
+namespace ApiAggregator.Infrastructure.Clients;
+
+public class GitHubApiClient : IExternalProvider
 {
-    public class GithubApiClient : IExternalApiClient
+    private readonly HttpClient _httpClient;
+    public string ProviderName => "GitHub";
+
+    public GitHubApiClient(HttpClient httpClient) => _httpClient = httpClient;
+
+    public async Task<Domain.Models.ProviderResult<IEnumerable<UnifiedItem>>> FetchDataAsync(string query, CancellationToken cancellationToken)
     {
-        private readonly HttpClient _http;
-
-        public string Name => "GitHub";
-
-        public GithubApiClient(HttpClient http)
+        var stopwatch = Stopwatch.StartNew();
+        try
         {
-            _http = http;
-            _http.DefaultRequestHeaders.UserAgent.ParseAdd("AggregatorApp");
+            var response = await _httpClient.GetFromJsonAsync<GithubSearchResponse>($"search/repositories?q={query}", cancellationToken);
+
+            var unifiedItems = response?.Items?.Select(repo => new UnifiedItem
+            {
+                Source = ProviderName,
+                Title = repo.FullName ?? "Unknown Repo",
+                Category = repo.Description ?? "No description",
+                Date = repo.UpdatedAt
+            }) ?? Enumerable.Empty<UnifiedItem>();
+
+            return new Domain.Models.ProviderResult<IEnumerable<UnifiedItem>> { IsSuccess = true, Data = unifiedItems, Latency = stopwatch.Elapsed };
         }
-
-        public async Task<IEnumerable<UnifiedItem>> FetchAsync(AggregationRequest request)
+        catch (Exception ex)
         {
-            var url = $"https://api.github.com/search/repositories?q={request.Query}";
-
-            var response = await _http.GetAsync(url);
-            if (!response.IsSuccessStatusCode)
-                return Enumerable.Empty<UnifiedItem>();
-
-            var json = await response.Content.ReadAsStringAsync();
-            var data = JsonSerializer.Deserialize<GithubResponse>(json);
-
-            return null;
-            //    data.Items.Select(repo => new UnifiedItem
-            //{
-            //    Source = Name,
-            //    Title = repo.Name,
-            //    Category = repo.Language ?? "unknown",
-            //    Date = repo.UpdatedAt
-            //});
+            return new Domain.Models.ProviderResult<IEnumerable<UnifiedItem>> { IsSuccess = false, ErrorMessage = ex.Message, Latency = stopwatch.Elapsed };
         }
     }
+
 }

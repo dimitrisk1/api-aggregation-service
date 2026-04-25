@@ -1,44 +1,40 @@
 ﻿using Application.DTOs;
-using Application.Interfaces;
 using Core_Infrastructure.ExternalApis.NewsApi.Models;
 using Domain.Entities;
-using Microsoft.Extensions.Configuration;
-using System.Text.Json;
+using Domain.Interfaces;
+using System.Diagnostics;
+using System.Net.Http.Json;
 
-namespace Infrastructure.ExternalApis.NewsApi
+namespace ApiAggregator.Infrastructure.Clients;
+
+public class NewsApiClient : IExternalProvider
 {
-    public class NewsApiClient : IExternalApiClient
+    private readonly HttpClient _httpClient;
+    public string ProviderName => "News";
+
+    public NewsApiClient(HttpClient httpClient) => _httpClient = httpClient;
+
+    public async Task<Domain.Models.ProviderResult<IEnumerable<UnifiedItem>>> FetchDataAsync(string query, CancellationToken cancellationToken)
     {
-        private readonly HttpClient _http;
-        private readonly string _apiKey;
-
-        public string Name => "NewsAPI";
-
-        public NewsApiClient(HttpClient http, IConfiguration config)
+        var stopwatch = Stopwatch.StartNew();
+        try
         {
-            _http = http;
-            _apiKey = config["Apis:News:ApiKey"];
+            var response = await _httpClient.GetFromJsonAsync<NewsApiResponse>($"everything?q={query}", cancellationToken);
+
+            var unifiedItems = response?.Articles?.Select(article => new UnifiedItem
+            {
+                Source = ProviderName,
+                Title = article.Headline ?? "No Title",
+                Category = article.Summary ?? "No Summary",
+                Date = article.PublishedAt
+            }) ?? Enumerable.Empty<UnifiedItem>();
+
+            return new Domain.Models.ProviderResult<IEnumerable<UnifiedItem>> { IsSuccess = true, Data = unifiedItems, Latency = stopwatch.Elapsed };
         }
-
-        public async Task<IEnumerable<UnifiedItem>> FetchAsync(AggregationRequest request)
+        catch (Exception ex)
         {
-            var url = $"https://newsapi.org/v2/everything?q={request.Query}&apiKey={_apiKey}";
-
-            var response = await _http.GetAsync(url);
-            if (!response.IsSuccessStatusCode)
-                return Enumerable.Empty<UnifiedItem>();
-
-            var json = await response.Content.ReadAsStringAsync();
-            var data = JsonSerializer.Deserialize<NewsApiResponse>(json);
-
-            return
-                data.Articles.Select(a => new UnifiedItem
-                {
-                    Source = Name,
-                    Title = a.Title,
-                    Category = a.Source.Name,
-                    Date = a.PublishedAt
-                });
+            return new Domain.Models.ProviderResult<IEnumerable<UnifiedItem>> { IsSuccess = false, ErrorMessage = ex.Message, Latency = stopwatch.Elapsed };
         }
     }
+
 }

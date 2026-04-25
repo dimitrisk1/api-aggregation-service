@@ -1,14 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Domain.Interfaces
+﻿namespace Domain.Interfaces
 {
+    using Domain.Entities;
+    using Domain.Models;
+
     public interface IExternalProvider
     {
-        string Name { get; }
-        Task<IEnumerable<object>> GetDataAsync(CancellationToken ct);
+        string ProviderName { get; }
+
+        Task<ProviderResult<IEnumerable<UnifiedItem>>> FetchDataAsync(string query, CancellationToken cancellationToken);
     }
 }

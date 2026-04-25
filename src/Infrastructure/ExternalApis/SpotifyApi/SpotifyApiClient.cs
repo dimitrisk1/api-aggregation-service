@@ -1,63 +1,39 @@
 ﻿using Application.DTOs;
-using Application.Interfaces;
 using Domain.Entities;
-using Infrastructure.ExternalApis.SpootifyApi;
-using Microsoft.Extensions.Configuration;
-using System.Net.Http.Headers;
+using Domain.Interfaces;
+using System.Diagnostics;
 using System.Net.Http.Json;
-using System.Text;
-using System.Text.Json;
 
-namespace Core_Infrastructure.ExternalApis.SpootifyApi
+namespace ApiAggregator.Infrastructure.Clients;
+
+public class SpotifyApiClient : IExternalProvider
 {
-    public class SpotifyClient : IExternalApiClient
+    private readonly HttpClient _httpClient;
+    public string ProviderName => "Spotify";
+
+    public SpotifyApiClient(HttpClient httpClient) => _httpClient = httpClient;
+
+    public async Task<Domain.Models.ProviderResult<IEnumerable<UnifiedItem>>> FetchDataAsync(string query, CancellationToken cancellationToken)
     {
-        private readonly HttpClient _httpClient;
-        private readonly string _clientId;
-        private readonly string _clientSecret;
-        private string _accessToken;
-
-        public string Name => "Spotify";
-
-        public SpotifyClient(HttpClient httpClient, IConfiguration config)
+        var stopwatch = Stopwatch.StartNew();
+        try
         {
-            _httpClient = httpClient;
-            _clientId = config["Spotify:ClientId"];
-            _clientSecret = config["Spotify:ClientSecret"];
-        }
+            var response = await _httpClient.GetFromJsonAsync<SpotifySearchResponse>($"search?q={query}&type=track", cancellationToken);
 
-        private async Task AuthenticateAsync()
-        {
-            var authHeader = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_clientId}:{_clientSecret}"));
-
-            var request = new HttpRequestMessage(HttpMethod.Post, "https://accounts.spotify.com/api/token");
-            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", authHeader);
-            request.Content = new FormUrlEncodedContent(new[]
+            var unifiedItems = response?.Tracks?.Items?.Select(track => new UnifiedItem
             {
-            new KeyValuePair<string, string>("grant_type", "client_credentials")
-        });
+                Source = ProviderName,
+                Title = track.Name ?? "Unknown Track",
+                Category = $"Artist: {track.ArtistName}",
+                Date = DateTime.UtcNow // Spotify search might not return a created date, so we default to now
+            }) ?? Enumerable.Empty<UnifiedItem>();
 
-            var response = await _httpClient.SendAsync(request);
-            var tokenData = await response.Content.ReadFromJsonAsync<JsonElement>();
-            _accessToken = tokenData.GetProperty("access_token").GetString();
+            return new Domain.Models.ProviderResult<IEnumerable<UnifiedItem>> { IsSuccess = true, Data = unifiedItems, Latency = stopwatch.Elapsed };
         }
-
-     
-
-        public async Task<IEnumerable<UnifiedItem>> FetchAsync(AggregationRequest request)
+        catch (Exception ex)
         {
-            if (string.IsNullOrEmpty(_accessToken)) {
-                await AuthenticateAsync();
-            }
-
-            var req = new HttpRequestMessage(HttpMethod.Get,
-                $"https://api.spotify.com/v1/search?q={Uri.EscapeDataString(request.Query)}&type=track");
-
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
-
-            var response = await _httpClient.SendAsync(req);
-                await response.Content.ReadFromJsonAsync<SpotifySearchResponse>();
-            return null; 
+            return new Domain.Models.ProviderResult<IEnumerable<UnifiedItem>> { IsSuccess = false, ErrorMessage = ex.Message, Latency = stopwatch.Elapsed };
         }
     }
+
 }
