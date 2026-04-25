@@ -25,6 +25,7 @@ Each provider implements `IExternalProvider`, making it straightforward to add n
 ### `GET /api/aggregate`
 
 Aggregates provider data in parallel and returns a unified result set.
+Requires a valid JWT bearer token.
 
 Query parameters:
 
@@ -83,6 +84,7 @@ Provider status values:
 ### `GET /api/stats`
 
 Returns per-provider in-memory request statistics:
+Requires a valid JWT bearer token.
 
 - total requests
 - successful requests
@@ -93,7 +95,7 @@ Returns per-provider in-memory request statistics:
 
 ### `POST /auth/token`
 
-Optional helper endpoint for JWT generation.
+Public helper endpoint for JWT generation.
 
 Request body:
 
@@ -104,7 +106,7 @@ Request body:
 }
 ```
 
-JWT validation is disabled by default and can be enabled with configuration.
+Use the returned token as `Authorization: Bearer <token>` when calling protected endpoints.
 
 ## Resilience and Performance
 
@@ -123,6 +125,8 @@ JWT validation is disabled by default and can be enabled with configuration.
 - `Jwt:Key`, `Jwt:Issuer`, `Jwt:Audience`: JWT settings
 - `BackgroundService:IsActive`: enables anomaly monitoring
 - `BackgroundService:Timer`: monitor interval in seconds
+
+JWT is enabled in the current solution configuration. `GET /api/aggregate` and `GET /api/stats` both require a bearer token.
 
 ## Run
 

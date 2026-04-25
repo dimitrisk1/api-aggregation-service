@@ -7,7 +7,6 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 var jwtSection = builder.Configuration.GetSection("Jwt");
-var jwtEnabled = jwtSection.GetValue("Enabled", false);
 var jwtKey = jwtSection["Key"] ?? "development-signing-key-should-be-overridden";
 
 builder.Services.AddApplication();
@@ -21,11 +20,6 @@ builder.Services.AddSwaggerGen(options =>
         Title = "API Aggregation Service",
         Version = "v1"
     });
-
-    if (!jwtEnabled)
-    {
-        return;
-    }
 
     var securityScheme = new OpenApiSecurityScheme
     {
@@ -48,35 +42,29 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-if (jwtEnabled)
-{
-    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-        .AddJwtBearer(options =>
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
         {
-            options.TokenValidationParameters = new TokenValidationParameters
-            {
-                ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
-                ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidIssuer = jwtSection["Issuer"],
-                ValidAudience = jwtSection["Audience"]
-            };
-        });
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidIssuer = jwtSection["Issuer"],
+            ValidAudience = jwtSection["Audience"]
+        };
+    });
 
-    builder.Services.AddAuthorization();
-}
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
 app.UseSwagger();
 app.UseSwaggerUI();
 
-if (jwtEnabled)
-{
-    app.UseAuthentication();
-    app.UseAuthorization();
-}
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 

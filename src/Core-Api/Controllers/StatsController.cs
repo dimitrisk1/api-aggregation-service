@@ -7,7 +7,7 @@ namespace Core_Api.Controllers
 {
     [ApiController]
     [Route("api/stats")]
-    [AllowAnonymous]
+    [Authorize]
     public class StatsController : ControllerBase
     {
         private readonly IApiMetricsService _metrics;

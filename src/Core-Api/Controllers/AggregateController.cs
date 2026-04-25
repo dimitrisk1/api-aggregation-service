@@ -7,7 +7,7 @@ namespace Core_Api.Controllers
 {
     [ApiController]
     [Route("api/aggregate")]
-    [AllowAnonymous]
+    [Authorize]
     public class AggregateController : ControllerBase
     {
         private readonly IAggregationService _service;
