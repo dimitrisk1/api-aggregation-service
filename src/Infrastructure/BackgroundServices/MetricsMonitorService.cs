@@ -11,6 +11,7 @@
         private readonly IApiMetricsService _metrics;
         private readonly ILogger<MetricsMonitorService> _logger;
         private readonly IOptions<BackgroundServiceOptions> _options;
+        private readonly string[] _providers = { "Weather", "News", "Twitter", "Spotify", "GitHub" };
 
         public MetricsMonitorService(
             IApiMetricsService metrics,
@@ -33,21 +34,25 @@
             _logger.LogInformation("Background service started.");
             while (!stoppingToken.IsCancellationRequested)
             {
-                var stats = _metrics.GetStats();
-
-                foreach (var api in stats.APIs)
+                foreach (var provider in _providers)
                 {
-                    var avg = api.Value.TotalResponseTime;
+                    var stats = _metrics.GetProviderStats(provider);
 
-                    if (avg > 300)
+                    // Check Epameinondas' conditions: > 20 samples AND 5-min avg > 1.5x lifetime avg
+                    if (stats.RecentSampleCount >= 20)
                     {
-                        _logger.LogWarning(
-                            "Performance issue detected for {Api}: Avg = {Avg}ms",
-                            api.Key, avg);
+                        var recentAvgMs = stats.LastFiveMinutesAverage.TotalMilliseconds;
+                        var lifetimeAvgMs = stats.LifetimeAverage.TotalMilliseconds;
+
+                        if (recentAvgMs > (1.5 * lifetimeAvgMs))
+                        {
+                            _logger.LogWarning(
+                                "ANOMALY DETECTED: {Provider} is degraded. " +
+                                "Recent Avg: {RecentAvg}ms | Lifetime Avg: {LifetimeAvg}ms | Samples: {Count}",
+                                provider, Math.Round(recentAvgMs, 2), Math.Round(lifetimeAvgMs, 2), stats.RecentSampleCount);
+                        }
                     }
                 }
-
-                await Task.Delay(TimeSpan.FromSeconds(_options.Value.Timer), stoppingToken);
             }
         }
     }

@@ -4,48 +4,81 @@ using System.Collections.Concurrent;
 
 namespace Application.Services
 {
+    using Application.Models;
+    // Infrastructure/Metrics/ApiMetricsService.cs
+    using System.Collections.Concurrent;
+
     public class ApiMetricsService : IApiMetricsService
     {
-        private readonly ConcurrentDictionary<string, ApiStatItemDto> _stats = new();
+        // A thread-safe dictionary holding the state for each provider
+        private readonly ConcurrentDictionary<string, ProviderMetricsState> _metrics = new();
 
-        public void Record(string apiName, long time)
+        public void RecordMetric(string providerName, TimeSpan latency, bool isSuccess)
         {
-            var stat = _stats.GetOrAdd(apiName, _ => new ApiStatItemDto());
-
-            //Interlocked.Increment(ref stat.TotalRequests);
-            //Interlocked.Add(ref stat.TotalResponseTime, time);
-
-            var bucket = time < 100 ? "fast" :
-                         time < 200 ? "average" : "slow";
-
-           // stat.Buckets.Add("fast", 1, (_, v) => v + 1);
+            var state = _metrics.GetOrAdd(providerName, _ => new ProviderMetricsState());
+            state.Record(latency, isSuccess);
         }
 
-        public ApiStatsDto GetStats()
+        public ProviderStats GetProviderStats(string providerName)
         {
-            var result = _stats.ToDictionary(
-                kvp => kvp.Key,
-                kvp =>
-                {
-                    var stat = kvp.Value;
-
-                    var avg = stat.TotalRequests == 0
-                        ? 0
-                        : (double)stat.TotalResponseTime / stat.TotalRequests;
-
-                    return new ApiStatItemDto
-                    {
-                        TotalRequests = stat.TotalRequests,
-                        TotalResponseTime = stat.TotalResponseTime,
-                        Buckets = new Dictionary<string, int>(stat.Buckets)
-                    };
-                });
-
-            return new ApiStatsDto
+            if (_metrics.TryGetValue(providerName, out var state))
             {
-                APIs = result
-            };
+                return state.GetStats();
+            }
+            return new ProviderStats(0, TimeSpan.Zero, TimeSpan.Zero, 0);
+        }
+
+        // Nested class to encapsulate the thread-safe logic per provider
+        private class ProviderMetricsState
+        {
+            private long _totalRequests;
+            private long _totalTicks; // TimeSpan is backed by ticks
+
+            // Tracks only the last 5 minutes of requests
+            private readonly ConcurrentQueue<TimingSample> _recentSamples = new();
+
+            public void Record(TimeSpan latency, bool isSuccess)
+            {
+                // Thread-safe lifetime updates
+                Interlocked.Increment(ref _totalRequests);
+                Interlocked.Add(ref _totalTicks, latency.Ticks);
+
+                // Add to rolling window
+                _recentSamples.Enqueue(new TimingSample(DateTime.UtcNow, latency, isSuccess));
+
+                // Prevent memory leaks by trimming old samples
+                TrimOldSamples();
+            }
+
+            public ProviderStats GetStats()
+            {
+                long totalRequests = Interlocked.Read(ref _totalRequests);
+                long totalTicks = Interlocked.Read(ref _totalTicks);
+
+                var lifetimeAvg = totalRequests == 0 ? TimeSpan.Zero : TimeSpan.FromTicks(totalTicks / totalRequests);
+
+                // Calculate rolling 5-minute average
+                var recentSamplesSnapshot = _recentSamples.ToArray();
+                var recentCount = recentSamplesSnapshot.Length;
+                var recentAvg = recentCount == 0
+                    ? TimeSpan.Zero
+                    : TimeSpan.FromTicks((long)recentSamplesSnapshot.Average(s => s.Latency.Ticks));
+
+                return new ProviderStats(totalRequests, lifetimeAvg, recentAvg, recentCount);
+            }
+
+            private void TrimOldSamples()
+            {
+                var cutoff = DateTime.UtcNow.AddMinutes(-5);
+
+                // Look at the oldest item. If it's older than 5 mins, try to dequeue it.
+                while (_recentSamples.TryPeek(out var oldest) && oldest.Timestamp < cutoff)
+                {
+                    _recentSamples.TryDequeue(out _);
+                }
+            }
         }
     }
 }
+
 

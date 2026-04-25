@@ -4,102 +4,65 @@
     using Application.DTOs;
     using Application.Interfaces;
     using Domain.Entities;
-    using Domain.Interfaces;
     using System.Diagnostics;
-    using System.IO;
-
 
     public class AggregationService : IAggregationService
     {
-        private readonly IEnumerable<IExternalProvider> _providers;
         private readonly IEnumerable<IExternalApiClient> _clients;
-        private readonly IApiMetricsService _metrics;
+        private readonly IApiMetricsService _metricsService; // We will inject this in Step 3
 
-        public AggregationService(
-            IEnumerable<IExternalApiClient> clients,
-            IApiMetricsService metrics)
-            //            IEnumerable<IExternalProvider> providers)
+        public AggregationService(IEnumerable<IExternalApiClient> clients,
+            IApiMetricsService metricsService)
         {
             _clients = clients;
-            _metrics = metrics;
-           // _providers = providers;
+            _metricsService = metricsService;
         }
 
-
-        //public async Task<IEnumerable<AggregatedResponse>> GetUnifiedDataAsync(FilterOptions options)
-        //{
-        //    var tasks = _providers.Select(p => p.GetDataAsync(default));
-        //    var results = await Task.WhenAll(tasks);
-
-        //    // Logic for filtering/sorting stays here, NOT in the controller
-        //    return results.SelectMany(x => x)
-        //                  .Where(x => x.Category == options.Category)
-        //                  .OrderBy(x => x.Date);
-        //}
-        public async Task<AggregatedResponse> HandleAsync(AggregationRequest request)
-        {
-            var tasks = _clients.Select(client => ExecuteClient(client, request));
-
-            var results = await Task.WhenAll(tasks);
-
-            var items = results.SelectMany(r => r);
-
-            items = ApplyFiltering(items, request);
-
-            items = ApplySorting(items, request);
-
-            return new AggregatedResponse
-            {
-                Items = items.ToList()
-            };
-        }
-
-        private async Task<IEnumerable<UnifiedItem>> ExecuteClient(
-            IExternalApiClient client,
-            AggregationRequest request)
+        public async Task<AggregatedResponse> AggregateDataAsync(AggregationRequest request, CancellationToken cancellationToken)
         {
             var stopwatch = Stopwatch.StartNew();
+            var response = new AggregatedResponse();
 
-            try
+            // 1. Create a task for each provider
+            var fetchTasks = _clients.Select(client => FetchAndMapAsync(client, request.Query, cancellationToken)).ToList();
+
+            // 2. Parallel Fan-out: Wait for all to complete (Polly handles individual timeouts/retries)
+            var results = await Task.WhenAll(fetchTasks);
+
+            // 3. Process the results into the envelope
+            foreach (var (providerName, isSuccess, items, latency) in results)
             {
-                var result = await client.FetchAsync(request);
-                return result ?? Enumerable.Empty<UnifiedItem>();
+                if (isSuccess && items != null)
+                {
+                    response.Items.AddRange(items);
+                    response.ProviderStatuses.Add(providerName, "Success");
+                }
+                else
+                {
+                    response.ProviderStatuses.Add(providerName, "Degraded/Failed");
+                }
+
+                // NEW: Fire and forget the metric recording
+                _metricsService.RecordMetric(providerName, latency, isSuccess);
+
             }
-            catch
-            {
-                return Enumerable.Empty<UnifiedItem>();
-            }
-            finally
-            {
-                stopwatch.Stop();
-                _metrics.Record(client.Name, stopwatch.ElapsedMilliseconds);
-            }
+
+            stopwatch.Stop();
+            response.TotalProcessingTime = stopwatch.Elapsed;
+
+            // Apply sorting/filtering based on the AggregationRequest here before returning
+
+            return response;
         }
 
-        private IEnumerable<UnifiedItem> ApplyFiltering(
-            IEnumerable<UnifiedItem> items,
-            AggregationRequest request)
+        private async Task<(string Provider, bool IsSuccess, IEnumerable<UnifiedItem>? Items, TimeSpan Latency)>
+    FetchAndMapAsync(IExternalApiClient client, string query, CancellationToken cancellationToken)
         {
-            if (!string.IsNullOrWhiteSpace(request.Category))
-            {
-                items = items.Where(x =>
-                    x.Category != null &&
-                    x.Category.Equals(request.Category, StringComparison.OrdinalIgnoreCase));
-            }
+            // Note: In a real scenario, you'd have specific mapping logic per provider.
+            // For simplicity, we are assuming FetchDataAsync returns a dynamic or mapped object.
+            var result = await client.FetchDataAsync<IEnumerable<UnifiedItem>>(query, cancellationToken);
 
-            return items;
-        }
-
-        private IEnumerable<UnifiedItem> ApplySorting(
-            IEnumerable<UnifiedItem> items,
-            AggregationRequest request)
-        {
-            return request.SortBy?.ToLower() switch
-            {
-                "date" => items.OrderByDescending(x => x.Date),
-                "title" => items.OrderBy(x => x.Title),
-                _ => items
-            };
+            return (client.ProviderName, result.IsSuccess, result.Data, result.Latency);
         }
     }
 }

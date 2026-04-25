@@ -2,46 +2,47 @@
 {
     using Application.DTOs;
     using Application.Interfaces;
-    using Domain.Entities;
-    using Microsoft.Extensions.Configuration;
-    using System.Text.Json;
+    using System.Diagnostics;
+    using System.Net.Http.Json;
+
     public class WeatherApiClient : IExternalApiClient
     {
-        private readonly HttpClient _http;
-        private readonly string _apiKey;
+        private readonly HttpClient _httpClient;
 
-        public string Name => "WeatherAPI";
+        public string ProviderName => "Weather";
 
-        public WeatherApiClient(HttpClient http, IConfiguration config)
+        public WeatherApiClient(HttpClient httpClient)
         {
-            _http = http;
-            _apiKey = config["Apis:Weather:ApiKey"];
+            _httpClient = httpClient;
+            // Base address and headers are configured in DI
         }
 
-        public async Task<IEnumerable<UnifiedItem>> FetchAsync(AggregationRequest request)
+        public async Task<ProviderResult<T>> FetchDataAsync<T>(string query, CancellationToken cancellationToken)
         {
-            if (string.IsNullOrEmpty(request.Query))
-                return Enumerable.Empty<UnifiedItem>();
-
-            var url = $"https://api.openweathermap.org/data/2.5/weather?q={request.Query}&appid={_apiKey}&units=metric";
-
-            var response = await _http.GetAsync(url);
-            if (!response.IsSuccessStatusCode)
-                return Enumerable.Empty<UnifiedItem>();
-
-            var json = await response.Content.ReadAsStringAsync();
-           // var data = JsonSerializer.Deserialize<WeatherResponse>(json);
-
-            return new List<UnifiedItem>
-        {
-            new UnifiedItem
+            var stopwatch = Stopwatch.StartNew();
+            try
             {
-                Source = Name,
-                //Title = $"Weather in {data.Name}: {data.Main.Temp}°C",
-                Category = "weather",
-                Date = DateTime.UtcNow
+                // Assuming the external API returns JSON that matches type T
+                var response = await _httpClient.GetFromJsonAsync<T>($"weather?q={query}", cancellationToken);
+
+                return new ProviderResult<T>
+                {
+                    IsSuccess = true,
+                    Data = response,
+                    Latency = stopwatch.Elapsed
+                };
             }
-        };
+            catch (Exception ex)
+            {
+                // The AggregationService will see IsSuccess = false and apply the partial-failure fallback
+                return new ProviderResult<T>
+                {
+                    IsSuccess = false,
+                    ErrorMessage = ex.Message,
+                    Latency = stopwatch.Elapsed
+                };
+            }
         }
     }
 }
+

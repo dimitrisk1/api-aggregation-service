@@ -8,107 +8,47 @@ namespace ApiAggregator.Test
     using Moq;
     using Xunit;
 
+
     public class AggregationServiceTests
     {
         [Fact]
-        public async Task Should_Aggregate_Data_From_All_Apis()
+        public async Task AggregateDataAsync_WithPartialFailure_ReturnsCombinedDataAndCorrectStatuses()
         {
-            var mockClients = new List<IExternalApiClient>
-        {
-            CreateMockClient("NewsAPI", new List<UnifiedItem>
-            {
-                new UnifiedItem { Title = "News1", Source = "NewsAPI" }
-            }),
-            CreateMockClient("WeatherAPI", new List<UnifiedItem>
-            {
-                new UnifiedItem { Title = "Weather1", Source = "WeatherAPI" }
-            }),
-            CreateMockClient("GitHub", new List<UnifiedItem>
-            {
-                new UnifiedItem { Title = "Repo1", Source = "GitHub" }
-            })
-        };
+            // Arrange
+            var mockWeatherClient = new Mock<IExternalApiClient>();
+            mockWeatherClient.Setup(c => c.ProviderName).Returns("Weather");
+            mockWeatherClient.Setup(c => c.FetchDataAsync<IEnumerable<UnifiedItem>>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new ProviderResult<IEnumerable<UnifiedItem>>
+                {
+                    IsSuccess = true,
+                    Data = new List<UnifiedItem> { new UnifiedItem { Title = "Sunny" } },
+                    Latency = TimeSpan.FromMilliseconds(50)
+                });
 
-            var metricsMock = new Mock<IApiMetricsService>();
+            var mockGithubClient = new Mock<IExternalApiClient>();
+            mockGithubClient.Setup(c => c.ProviderName).Returns("GitHub");
+            mockGithubClient.Setup(c => c.FetchDataAsync<IEnumerable<UnifiedItem>>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new ProviderResult<IEnumerable<UnifiedItem>>
+                {
+                    IsSuccess = false, // Simulating a failure
+                    ErrorMessage = "API Rate Limit Exceeded",
+                    Latency = TimeSpan.FromMilliseconds(200)
+                });
 
-            var service = new AggregationService(mockClients, metricsMock.Object);
-
-            var request = new AggregationRequest
-            {
-                Query = "test"
-            };
-
-            var result = await service.HandleAsync(request);
-
-            result.Items.Should().HaveCount(3);
-            result.Items.Select(x => x.Source).Should().Contain(new[]
-            {
-            "NewsAPI", "WeatherAPI", "GitHub"
-        });
-        }
-
-        [Fact]
-        public async Task Should_Return_Partial_Data_When_One_Api_Fails()
-        {
-            var workingClient = CreateMockClient("NewsAPI", new List<UnifiedItem>
-        {
-            new UnifiedItem { Title = "News1", Source = "NewsAPI" }
-        });
-
-            var failingClient = new Mock<IExternalApiClient>();
-            failingClient.Setup(c => c.Name).Returns("WeatherAPI");
-            failingClient
-                .Setup(c => c.FetchAsync(It.IsAny<AggregationRequest>()))
-                .ThrowsAsync(new Exception("API failed"));
-
-            var clients = new List<IExternalApiClient>
-        {
-            workingClient,
-            failingClient.Object
-        };
-
-            var metricsMock = new Mock<IApiMetricsService>();
-
-            var service = new AggregationService(clients, metricsMock.Object);
-
-            var result = await service.HandleAsync(new AggregationRequest());
-
-            result.Items.Should().HaveCount(1);
-            result.Items.First().Source.Should().Be("NewsAPI");
-        }
-
-        [Fact]
-        public async Task Should_Record_Metrics_For_Each_Client()
-        {
-            var client = CreateMockClient("NewsAPI", new List<UnifiedItem>
-        {
-            new UnifiedItem { Title = "News1", Source = "NewsAPI" }
-        });
-
-            var metricsMock = new Mock<IApiMetricsService>();
-
-            var service = new AggregationService(
-                new List<IExternalApiClient> { client },
-                metricsMock.Object);
+            var clients = new List<IExternalApiClient> { mockWeatherClient.Object, mockGithubClient.Object };
+            var service = new AggregationService(clients);
+            var request = new AggregationRequest { Query = "test" };
 
             // Act
-            await service.HandleAsync(new AggregationRequest());
+            var result = await service.AggregateDataAsync(request, CancellationToken.None);
 
             // Assert
-            metricsMock.Verify(
-                m => m.Record("NewsAPI", It.IsAny<long>()),
-                Times.Once);
-        }
+            result.Should().NotBeNull();
+            result.Items.Should().HaveCount(1); // Only the Weather item made it
+            result.Items.First().Title.Should().Be("Sunny");
 
-        private IExternalApiClient CreateMockClient(string name, List<UnifiedItem> data)
-        {
-            var mock = new Mock<IExternalApiClient>();
-
-            mock.Setup(c => c.Name).Returns(name);
-            mock.Setup(c => c.FetchAsync(It.IsAny<AggregationRequest>()))
-                .ReturnsAsync(data);
-
-            return mock.Object;
+            result.ProviderStatuses["Weather"].Should().Be("Success");
+            result.ProviderStatuses["GitHub"].Should().Be("Degraded/Failed");
         }
     }
 }

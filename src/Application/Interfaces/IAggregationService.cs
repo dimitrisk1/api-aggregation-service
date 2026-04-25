@@ -4,6 +4,6 @@
 
     public interface IAggregationService
     {
-       public Task<AggregatedResponse> HandleAsync(AggregationRequest request);
+        Task<AggregatedResponse> AggregateDataAsync(AggregationRequest request, CancellationToken cancellationToken);
     }
 }

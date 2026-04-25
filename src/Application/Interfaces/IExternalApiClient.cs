@@ -5,7 +5,9 @@
 
     public interface IExternalApiClient
     {
-        string Name { get; }
-        Task<IEnumerable<UnifiedItem>> FetchAsync(AggregationRequest request);
+        string ProviderName { get; }
+
+        // T represents the unified shape or the raw shape we will map to UnifiedItem
+        Task<ProviderResult<T>> FetchDataAsync<T>(string query, CancellationToken cancellationToken);
     }
 }
