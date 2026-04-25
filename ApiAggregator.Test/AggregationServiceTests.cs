@@ -35,8 +35,10 @@ namespace ApiAggregator.Test
                     Latency = TimeSpan.FromMilliseconds(200)
                 });
 
+            var mockMetricsService = new Mock<IApiMetricsService>();
+
             var clients = new List<IExternalApiClient> { mockWeatherClient.Object, mockGithubClient.Object };
-            var service = new AggregationService(clients);
+            var service = new AggregationService(clients, mockMetricsService.Object);
             var request = new AggregationRequest { Query = "test" };
 
             // Act
@@ -44,7 +46,7 @@ namespace ApiAggregator.Test
 
             // Assert
             result.Should().NotBeNull();
-            result.Items.Should().HaveCount(1); // Only the Weather item made it
+            result.Items.Should().HaveCount(1); 
             result.Items.First().Title.Should().Be("Sunny");
 
             result.ProviderStatuses["Weather"].Should().Be("Success");
