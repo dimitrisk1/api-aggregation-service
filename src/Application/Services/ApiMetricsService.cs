@@ -1,17 +1,20 @@
-﻿using Application.DTOs;
+using Application.DTOs;
 using Application.Interfaces;
+using Application.Models;
 using System.Collections.Concurrent;
 
 namespace Application.Services
 {
-    using Application.Models;
-    // Infrastructure/Metrics/ApiMetricsService.cs
-    using System.Collections.Concurrent;
-
     public class ApiMetricsService : IApiMetricsService
     {
-        // A thread-safe dictionary holding the state for each provider
         private readonly ConcurrentDictionary<string, ProviderMetricsState> _metrics = new();
+
+        private static readonly (string Name, Func<TimeSpan, bool> Match)[] BucketDefinitions =
+        [
+            ("fast", latency => latency.TotalMilliseconds < 100),
+            ("average", latency => latency.TotalMilliseconds >= 100 && latency.TotalMilliseconds <= 250),
+            ("slow", latency => latency.TotalMilliseconds > 250)
+        ];
 
         public void RecordMetric(string providerName, TimeSpan latency, bool isSuccess)
         {
@@ -19,66 +22,104 @@ namespace Application.Services
             state.Record(latency, isSuccess);
         }
 
-        public ProviderStats GetProviderStats(string providerName)
+        public ApiStatsDto GetApiStatistics()
         {
-            if (_metrics.TryGetValue(providerName, out var state))
+            return new ApiStatsDto
             {
-                return state.GetStats();
-            }
-            return new ProviderStats(0, TimeSpan.Zero, TimeSpan.Zero, 0);
+                Providers = _metrics.ToDictionary(
+                    entry => entry.Key,
+                    entry =>
+                    {
+                        var stats = entry.Value.GetStats();
+                        return new ApiStatItemDto
+                        {
+                            TotalRequests = stats.TotalRequests,
+                            SuccessfulRequests = stats.SuccessfulRequests,
+                            FailedRequests = stats.FailedRequests,
+                            AverageResponseTimeMs = Math.Round(stats.LifetimeAverage.TotalMilliseconds, 2),
+                            LastFiveMinutesAverageResponseTimeMs = Math.Round(stats.LastFiveMinutesAverage.TotalMilliseconds, 2),
+                            Buckets = stats.Buckets.ToDictionary(bucket => bucket.Key, bucket => bucket.Value)
+                        };
+                    })
+            };
         }
 
-        // Nested class to encapsulate the thread-safe logic per provider
-        private class ProviderMetricsState
+        public ProviderStats GetProviderStats(string providerName)
         {
-            private long _totalRequests;
-            private long _totalTicks; // TimeSpan is backed by ticks
+            return _metrics.TryGetValue(providerName, out var state)
+                ? state.GetStats()
+                : new ProviderStats(0, 0, 0, TimeSpan.Zero, TimeSpan.Zero, 0, CreateEmptyBuckets());
+        }
 
-            // Tracks only the last 5 minutes of requests
+        public IReadOnlyDictionary<string, ProviderStats> GetStats()
+        {
+            return _metrics.ToDictionary(entry => entry.Key, entry => entry.Value.GetStats());
+        }
+
+        private sealed class ProviderMetricsState
+        {
             private readonly ConcurrentQueue<TimingSample> _recentSamples = new();
+            private readonly ConcurrentDictionary<string, long> _bucketCounts = new(
+                BucketDefinitions.ToDictionary(bucket => bucket.Name, _ => 0L));
+
+            private long _totalRequests;
+            private long _totalTicks;
+            private long _successfulRequests;
+            private long _failedRequests;
 
             public void Record(TimeSpan latency, bool isSuccess)
             {
-                // Thread-safe lifetime updates
                 Interlocked.Increment(ref _totalRequests);
                 Interlocked.Add(ref _totalTicks, latency.Ticks);
 
-                // Add to rolling window
-                _recentSamples.Enqueue(new TimingSample(DateTime.UtcNow, latency, isSuccess));
+                if (isSuccess)
+                {
+                    Interlocked.Increment(ref _successfulRequests);
+                }
+                else
+                {
+                    Interlocked.Increment(ref _failedRequests);
+                }
 
-                // Prevent memory leaks by trimming old samples
+                var bucketName = BucketDefinitions.First(bucket => bucket.Match(latency)).Name;
+                _bucketCounts.AddOrUpdate(bucketName, 1, (_, current) => current + 1);
+
+                _recentSamples.Enqueue(new TimingSample(DateTime.UtcNow, latency, isSuccess));
                 TrimOldSamples();
             }
 
             public ProviderStats GetStats()
             {
-                long totalRequests = Interlocked.Read(ref _totalRequests);
-                long totalTicks = Interlocked.Read(ref _totalTicks);
+                var totalRequests = Interlocked.Read(ref _totalRequests);
+                var totalTicks = Interlocked.Read(ref _totalTicks);
+                var recentSamples = _recentSamples.ToArray();
+                var recentCount = recentSamples.Length;
 
-                var lifetimeAvg = totalRequests == 0 ? TimeSpan.Zero : TimeSpan.FromTicks(totalTicks / totalRequests);
-
-                // Calculate rolling 5-minute average
-                var recentSamplesSnapshot = _recentSamples.ToArray();
-                var recentCount = recentSamplesSnapshot.Length;
-                var recentAvg = recentCount == 0
-                    ? TimeSpan.Zero
-                    : TimeSpan.FromTicks((long)recentSamplesSnapshot.Average(s => s.Latency.Ticks));
-
-                return new ProviderStats(totalRequests, lifetimeAvg, recentAvg, recentCount);
+                return new ProviderStats(
+                    totalRequests,
+                    Interlocked.Read(ref _successfulRequests),
+                    Interlocked.Read(ref _failedRequests),
+                    totalRequests == 0 ? TimeSpan.Zero : TimeSpan.FromTicks(totalTicks / totalRequests),
+                    recentCount == 0
+                        ? TimeSpan.Zero
+                        : TimeSpan.FromTicks((long)recentSamples.Average(sample => sample.Latency.Ticks)),
+                    recentCount,
+                    _bucketCounts.ToDictionary(entry => entry.Key, entry => entry.Value));
             }
 
             private void TrimOldSamples()
             {
                 var cutoff = DateTime.UtcNow.AddMinutes(-5);
-
-                // Look at the oldest item. If it's older than 5 mins, try to dequeue it.
                 while (_recentSamples.TryPeek(out var oldest) && oldest.Timestamp < cutoff)
                 {
                     _recentSamples.TryDequeue(out _);
                 }
             }
         }
+
+        private static IReadOnlyDictionary<string, long> CreateEmptyBuckets()
+        {
+            return BucketDefinitions.ToDictionary(bucket => bucket.Name, _ => 0L);
+        }
     }
 }
-
-

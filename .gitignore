@@ -480,3 +480,28 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Project-local runtime data and diagnostics
+telemetry/
+telemetry/**
+data/
+data/**
+random-data/
+random-data/**
+tmp/
+temp/
+*.seed
+*.trace
+*.etl
+*.trx
+*.jsonl
+
+# Nested IDE/runtime folders that can appear under src/
+**/.vs/
+**/TestResults/
+**/BenchmarkDotNet.Artifacts/
+
+# Local secrets and developer-specific config
+appsettings.Local.json
+appsettings.*.local.json
+secrets.json

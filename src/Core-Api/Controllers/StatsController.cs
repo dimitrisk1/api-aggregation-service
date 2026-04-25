@@ -1,9 +1,13 @@
-﻿namespace Core_Api.Controllers
+using Application.DTOs;
+using Application.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Core_Api.Controllers
 {
-    using Application.Interfaces;
-    using Microsoft.AspNetCore.Mvc;
-    [Route("[controller]")]
     [ApiController]
+    [Route("api/stats")]
+    [AllowAnonymous]
     public class StatsController : ControllerBase
     {
         private readonly IApiMetricsService _metrics;
@@ -14,9 +18,10 @@
         }
 
         [HttpGet]
+        [ProducesResponseType(typeof(ApiStatsDto), StatusCodes.Status200OK)]
         public IActionResult Get()
         {
-            return Ok(_metrics.GetStats());
+            return Ok(_metrics.GetApiStatistics());
         }
     }
 }

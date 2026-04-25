@@ -1,68 +1,110 @@
-﻿namespace Application.Services
+using Application.DTOs;
+using Application.Interfaces;
+using Domain.Entities;
+using Domain.Interfaces;
+using System.Diagnostics;
+
+namespace Application.Services
 {
-
-    using Application.DTOs;
-    using Application.Interfaces;
-    using Domain.Entities;
-    using System.Diagnostics;
-
     public class AggregationService : IAggregationService
     {
-        private readonly IEnumerable<IExternalApiClient> _clients;
-        private readonly IApiMetricsService _metricsService; // We will inject this in Step 3
+        private readonly IEnumerable<IExternalProvider> _providers;
+        private readonly IApiMetricsService _metricsService;
 
-        public AggregationService(IEnumerable<IExternalApiClient> clients,
-            IApiMetricsService metricsService)
+        public AggregationService(IEnumerable<IExternalProvider> providers, IApiMetricsService metricsService)
         {
-            _clients = clients;
+            _providers = providers;
             _metricsService = metricsService;
         }
 
         public async Task<AggregatedResponse> AggregateDataAsync(AggregationRequest request, CancellationToken cancellationToken)
         {
-            var stopwatch = Stopwatch.StartNew();
-            var response = new AggregatedResponse();
-
-            // 1. Create a task for each provider
-            var fetchTasks = _clients.Select(client => FetchAndMapAsync(client, request.Query, cancellationToken)).ToList();
-
-            // 2. Parallel Fan-out: Wait for all to complete (Polly handles individual timeouts/retries)
-            var results = await Task.WhenAll(fetchTasks);
-
-            // 3. Process the results into the envelope
-            foreach (var (providerName, isSuccess, items, latency) in results)
+            if (string.IsNullOrWhiteSpace(request.Query))
             {
-                if (isSuccess && items != null)
+                throw new ArgumentException("Query is required.", nameof(request.Query));
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            var results = await Task.WhenAll(
+                _providers.Select(provider => FetchAndMapAsync(provider, request.Query, cancellationToken)));
+
+            var response = new AggregatedResponse
+            {
+                Query = request.Query,
+                GeneratedAtUtc = DateTime.UtcNow
+            };
+
+            var allItems = new List<UnifiedItem>();
+
+            foreach (var result in results)
+            {
+                if (result.Items is not null)
                 {
-                    response.Items.AddRange(items);
-                    response.ProviderStatuses.Add(providerName, "Success");
-                }
-                else
-                {
-                    response.ProviderStatuses.Add(providerName, "Degraded/Failed");
+                    allItems.AddRange(result.Items);
                 }
 
-                // NEW: Fire and forget the metric recording
-                _metricsService.RecordMetric(providerName, latency, isSuccess);
+                response.Providers.Add(new ProviderExecutionDto
+                {
+                    ProviderName = result.Provider,
+                    Status = result.IsSuccess ? (result.IsFallback ? "Fallback" : "Success") : "Failed",
+                    ItemCount = result.Items?.Count() ?? 0,
+                    ResponseTimeMs = Math.Round(result.Latency.TotalMilliseconds, 2),
+                    ErrorMessage = result.ErrorMessage
+                });
 
+                _metricsService.RecordMetric(result.Provider, result.Latency, result.IsSuccess);
             }
 
             stopwatch.Stop();
-            response.TotalProcessingTime = stopwatch.Elapsed;
-
-            // Apply sorting/filtering based on the AggregationRequest here before returning
+            response.Items = ApplyFiltersAndSorting(allItems, request).ToList();
+            response.TotalItems = response.Items.Count;
+            response.TotalProcessingTimeMs = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 2);
 
             return response;
         }
 
-        private async Task<(string Provider, bool IsSuccess, IEnumerable<UnifiedItem>? Items, TimeSpan Latency)>
-    FetchAndMapAsync(IExternalApiClient client, string query, CancellationToken cancellationToken)
+        private static IEnumerable<UnifiedItem> ApplyFiltersAndSorting(IEnumerable<UnifiedItem> items, AggregationRequest request)
         {
-            // Note: In a real scenario, you'd have specific mapping logic per provider.
-            // For simplicity, we are assuming FetchDataAsync returns a dynamic or mapped object.
-            var result = await client.FetchDataAsync<IEnumerable<UnifiedItem>>(query, cancellationToken);
+            var filtered = items;
 
-            return (client.ProviderName, result.IsSuccess, result.Data, result.Latency);
+            if (!string.IsNullOrWhiteSpace(request.Category))
+            {
+                filtered = filtered.Where(item => string.Equals(item.Category, request.Category, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.Source))
+            {
+                filtered = filtered.Where(item => string.Equals(item.Source, request.Source, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (request.FromUtc.HasValue)
+            {
+                filtered = filtered.Where(item => item.Date >= request.FromUtc.Value);
+            }
+
+            if (request.ToUtc.HasValue)
+            {
+                filtered = filtered.Where(item => item.Date <= request.ToUtc.Value);
+            }
+
+            var descending = !string.Equals(request.SortDirection, "asc", StringComparison.OrdinalIgnoreCase);
+            filtered = request.SortBy.ToLowerInvariant() switch
+            {
+                "relevance" => descending ? filtered.OrderByDescending(item => item.RelevanceScore) : filtered.OrderBy(item => item.RelevanceScore),
+                "title" => descending ? filtered.OrderByDescending(item => item.Title) : filtered.OrderBy(item => item.Title),
+                "source" => descending ? filtered.OrderByDescending(item => item.Source) : filtered.OrderBy(item => item.Source),
+                _ => descending ? filtered.OrderByDescending(item => item.Date) : filtered.OrderBy(item => item.Date)
+            };
+
+            var limit = request.Limit <= 0 ? 25 : Math.Min(request.Limit, 100);
+            return filtered.Take(limit);
+        }
+
+        private static async Task<(string Provider, bool IsSuccess, bool IsFallback, IEnumerable<UnifiedItem>? Items, TimeSpan Latency, string? ErrorMessage)>
+            FetchAndMapAsync(IExternalProvider provider, string query, CancellationToken cancellationToken)
+        {
+            var result = await provider.FetchDataAsync(query, cancellationToken);
+            return (provider.ProviderName, result.IsSuccess, result.IsFallback, result.Data, result.Latency, result.ErrorMessage);
         }
     }
 }

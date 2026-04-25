@@ -1,17 +1,16 @@
-﻿namespace Core_Infrastructure.BackgroundServices
-{
-    using Application.Common.Configurations;
-    using Application.Interfaces;
-    using Microsoft.Extensions.Hosting;
-    using Microsoft.Extensions.Logging;
-    using Microsoft.Extensions.Options;
+using Application.Common.Configurations;
+using Application.Interfaces;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
+namespace Core_Infrastructure.BackgroundServices
+{
     public class MetricsMonitorService : BackgroundService
     {
         private readonly IApiMetricsService _metrics;
         private readonly ILogger<MetricsMonitorService> _logger;
         private readonly IOptions<BackgroundServiceOptions> _options;
-        private readonly string[] _providers = { "Weather", "News", "Twitter", "Spotify", "GitHub" };
 
         public MetricsMonitorService(
             IApiMetricsService metrics,
@@ -27,32 +26,31 @@
         {
             if (!_options.Value.IsActive)
             {
-                _logger.LogInformation("Background service is disabled.");
+                _logger.LogInformation("Metrics monitor is disabled.");
                 return;
             }
 
-            _logger.LogInformation("Background service started.");
             while (!stoppingToken.IsCancellationRequested)
             {
-                foreach (var provider in _providers)
+                foreach (var provider in _metrics.GetStats())
                 {
-                    var stats = _metrics.GetProviderStats(provider);
+                    var stats = provider.Value;
+                    var lifetimeAverageMs = stats.LifetimeAverage.TotalMilliseconds;
+                    var recentAverageMs = stats.LastFiveMinutesAverage.TotalMilliseconds;
 
-                    // Check Epameinondas' conditions: > 20 samples AND 5-min avg > 1.5x lifetime avg
-                    if (stats.RecentSampleCount >= 20)
+                    if (stats.RecentSampleCount >= 5 &&
+                        lifetimeAverageMs > 0 &&
+                        recentAverageMs > lifetimeAverageMs * 1.5)
                     {
-                        var recentAvgMs = stats.LastFiveMinutesAverage.TotalMilliseconds;
-                        var lifetimeAvgMs = stats.LifetimeAverage.TotalMilliseconds;
-
-                        if (recentAvgMs > (1.5 * lifetimeAvgMs))
-                        {
-                            _logger.LogWarning(
-                                "ANOMALY DETECTED: {Provider} is degraded. " +
-                                "Recent Avg: {RecentAvg}ms | Lifetime Avg: {LifetimeAvg}ms | Samples: {Count}",
-                                provider, Math.Round(recentAvgMs, 2), Math.Round(lifetimeAvgMs, 2), stats.RecentSampleCount);
-                        }
+                        _logger.LogWarning(
+                            "Performance anomaly detected for {Provider}. Recent avg {RecentAvg}ms vs lifetime avg {LifetimeAvg}ms.",
+                            provider.Key,
+                            Math.Round(recentAverageMs, 2),
+                            Math.Round(lifetimeAverageMs, 2));
                     }
                 }
+
+                await Task.Delay(TimeSpan.FromSeconds(Math.Max(15, _options.Value.Timer)), stoppingToken);
             }
         }
     }

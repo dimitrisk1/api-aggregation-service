@@ -1,6 +1,7 @@
-﻿using Polly;
-using Polly.Extensions.Http;//check again
+using Polly;
+using Polly.Extensions.Http;
 using System.Net;
+
 namespace Infrastructure.Resilience
 {
     public static class PollyPolicies
@@ -8,38 +9,23 @@ namespace Infrastructure.Resilience
         public static IAsyncPolicy<HttpResponseMessage> RetryPolicy()
         {
             return HttpPolicyExtensions
-                .HandleTransientHttpError() 
-                .OrResult(msg => msg.StatusCode == HttpStatusCode.TooManyRequests)
+                .HandleTransientHttpError()
+                .OrResult(response => response.StatusCode == HttpStatusCode.TooManyRequests)
                 .WaitAndRetryAsync(
                     retryCount: 3,
-                    sleepDurationProvider: retryAttempt =>
-                        TimeSpan.FromMilliseconds(200 * Math.Pow(2, retryAttempt)),
-                    onRetry: (outcome, timespan, retryAttempt, context) =>
-                    {
-                        Console.WriteLine($"Retry {retryAttempt} after {timespan.TotalMilliseconds}ms");
-                    });
+                    sleepDurationProvider: retryAttempt => TimeSpan.FromMilliseconds(200 * Math.Pow(2, retryAttempt)));
         }
 
         public static IAsyncPolicy<HttpResponseMessage> CircuitBreakerPolicy()
         {
             return HttpPolicyExtensions
                 .HandleTransientHttpError()
-                .CircuitBreakerAsync(
-                    handledEventsAllowedBeforeBreaking: 5,
-                    durationOfBreak: TimeSpan.FromSeconds(30));
+                .CircuitBreakerAsync(handledEventsAllowedBeforeBreaking: 5, durationOfBreak: TimeSpan.FromSeconds(30));
         }
 
         public static IAsyncPolicy<HttpResponseMessage> TimeoutPolicy()
         {
             return Policy.TimeoutAsync<HttpResponseMessage>(3);
-        }
-
-        public static IAsyncPolicy<HttpResponseMessage> GetWaitAndRetryPolicy()
-        {
-            return HttpPolicyExtensions
-                .HandleTransientHttpError() // Handles 5xx and 408
-                .WaitAndRetryAsync(3, retryAttempt =>
-                    TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))); // Exponential backoff
         }
     }
 }

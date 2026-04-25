@@ -1,6 +1,6 @@
 <Solution>
   <Folder Name="/Infrastructure/">
-    <Project Path="Infrastructure/Core-Infrastructure.csproj" />
+    <Project Path="Infrastructure/Infrastructure.csproj" />
   </Folder>
   <Project Path="Application/Application.csproj" />
   <Project Path="Core-Api/Core-Api.csproj" />
