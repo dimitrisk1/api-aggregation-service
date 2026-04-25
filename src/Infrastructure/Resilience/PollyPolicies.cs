@@ -33,5 +33,13 @@ namespace Infrastructure.Resilience
         {
             return Policy.TimeoutAsync<HttpResponseMessage>(3);
         }
+
+        public static IAsyncPolicy<HttpResponseMessage> GetWaitAndRetryPolicy()
+        {
+            return HttpPolicyExtensions
+                .HandleTransientHttpError() // Handles 5xx and 408
+                .WaitAndRetryAsync(3, retryAttempt =>
+                    TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))); // Exponential backoff
+        }
     }
 }

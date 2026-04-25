@@ -17,25 +17,25 @@
 
         public AggregationService(
             IEnumerable<IExternalApiClient> clients,
-            IApiMetricsService metrics,
-            IEnumerable<IExternalProvider> providers)
+            IApiMetricsService metrics)
+            //            IEnumerable<IExternalProvider> providers)
         {
             _clients = clients;
             _metrics = metrics;
-            _providers = providers;
+           // _providers = providers;
         }
 
 
-        public async Task<IEnumerable<AggregatedResponse>> GetUnifiedDataAsync(FilterOptions options)
-        {
-            var tasks = _providers.Select(p => p.GetDataAsync(default));
-            var results = await Task.WhenAll(tasks);
+        //public async Task<IEnumerable<AggregatedResponse>> GetUnifiedDataAsync(FilterOptions options)
+        //{
+        //    var tasks = _providers.Select(p => p.GetDataAsync(default));
+        //    var results = await Task.WhenAll(tasks);
 
-            // Logic for filtering/sorting stays here, NOT in the controller
-            return results.SelectMany(x => x)
-                          .Where(x => x.Category == options.Category)
-                          .OrderBy(x => x.Date);
-        }
+        //    // Logic for filtering/sorting stays here, NOT in the controller
+        //    return results.SelectMany(x => x)
+        //                  .Where(x => x.Category == options.Category)
+        //                  .OrderBy(x => x.Date);
+        //}
         public async Task<AggregatedResponse> HandleAsync(AggregationRequest request)
         {
             var tasks = _clients.Select(client => ExecuteClient(client, request));

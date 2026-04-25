@@ -9,6 +9,6 @@ namespace Domain.Interfaces
     public interface IExternalProvider
     {
         string Name { get; }
-        Task<IEnumerable<AggregatedResult>> GetDataAsync(CancellationToken ct);
+        Task<IEnumerable<object>> GetDataAsync(CancellationToken ct);
     }
 }

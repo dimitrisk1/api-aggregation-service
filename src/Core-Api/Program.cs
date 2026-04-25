@@ -1,6 +1,10 @@
+using Application.Common.Configurations;
 using Application.Extensions;
+using Core_Infrastructure.BackgroundServices;
 using Core_Infrastructure.Extensions;
-using Core_Infrastructure.Extensions;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -18,7 +22,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
         };
     });
-
+builder.Services.Configure<BackgroundServiceOptions>(
+    builder.Configuration.GetSection("BackgroundService"));
+builder.Services.AddHostedService<MetricsMonitorService>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

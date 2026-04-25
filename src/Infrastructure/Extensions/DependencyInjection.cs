@@ -1,5 +1,6 @@
 ﻿using Application.Interfaces;
 using Application.Services;
+using Core_Infrastructure.BackgroundServices;
 using Core_Infrastructure.Caching;
 using Infrastructure.ExternalApis.GithubApi;
 using Infrastructure.ExternalApis.NewsApi;

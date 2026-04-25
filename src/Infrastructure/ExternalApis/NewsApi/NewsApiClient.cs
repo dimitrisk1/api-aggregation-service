@@ -1,5 +1,6 @@
 ﻿using Application.DTOs;
 using Application.Interfaces;
+using Core_Infrastructure.ExternalApis.NewsApi.Models;
 using Domain.Entities;
 using Microsoft.Extensions.Configuration;
 using System.Text.Json;
@@ -28,16 +29,16 @@ namespace Infrastructure.ExternalApis.NewsApi
                 return Enumerable.Empty<UnifiedItem>();
 
             var json = await response.Content.ReadAsStringAsync();
-            //var data = JsonSerializer.Deserialize<NewsResponse>(json);
+            var data = JsonSerializer.Deserialize<NewsApiResponse>(json);
 
-            return null;  
-            //    data.Articles.Select(a => new UnifiedItem
-            //{
-            //    Source = Name,
-            //    Title = a.Title,
-            //    Category = a.Source.Name,
-            //    Date = a.PublishedAt
-            //});
+            return
+                data.Articles.Select(a => new UnifiedItem
+                {
+                    Source = Name,
+                    Title = a.Title,
+                    Category = a.Source.Name,
+                    Date = a.PublishedAt
+                });
         }
     }
 }
