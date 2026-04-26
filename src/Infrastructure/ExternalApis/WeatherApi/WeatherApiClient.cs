@@ -2,6 +2,7 @@ using Application.Interfaces;
 using Domain.Entities;
 using Infrastructure.ExternalApis;
 using Infrastructure.ExternalApis.WeatherApi.Models;
+using Microsoft.Extensions.Configuration;
 using System.Net.Http.Json;
 
 namespace ApiAggregator.Infrastructure.Clients
@@ -9,43 +10,49 @@ namespace ApiAggregator.Infrastructure.Clients
     public class WeatherApiClient : CachedExternalProviderBase
     {
         private readonly HttpClient _httpClient;
+        private readonly string _apiKey;
 
-        public WeatherApiClient(HttpClient httpClient, ICacheService cacheService)
+        public WeatherApiClient(HttpClient httpClient, ICacheService cacheService, IConfiguration configuration)
             : base(cacheService)
         {
             _httpClient = httpClient;
+            _apiKey = configuration["Apis:Weather:ApiKey"] ?? string.Empty;
         }
 
         public override string ProviderName => "Weather";
 
         protected override async Task<IEnumerable<UnifiedItem>> ExecuteCoreAsync(string query, CancellationToken cancellationToken)
         {
-            var geocoding = await _httpClient.GetFromJsonAsync<OpenMeteoGeocodingResponse>(
-                $"https://geocoding-api.open-meteo.com/v1/search?name={Uri.EscapeDataString(query)}&count=1&language=en&format=json",
+            if (string.IsNullOrWhiteSpace(_apiKey) || _apiKey.StartsWith("replace-with-", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Weather API key is missing. Set Apis:Weather:ApiKey in configuration.");
+            }
+
+            using var response = await _httpClient.GetAsync(
+                $"weather?q={Uri.EscapeDataString(query)}&appid={Uri.EscapeDataString(_apiKey)}&units=metric",
                 cancellationToken);
 
-            var location = geocoding?.Results?.FirstOrDefault()
-                ?? throw new InvalidOperationException($"No weather location found for '{query}'.");
+            response.EnsureSuccessStatusCode();
 
-            var forecast = await _httpClient.GetFromJsonAsync<OpenMeteoForecastResponse>(
-                $"https://api.open-meteo.com/v1/forecast?latitude={location.Latitude}&longitude={location.Longitude}&current=temperature_2m,weather_code,wind_speed_10m&timezone=UTC",
-                cancellationToken)
-                ?? throw new InvalidOperationException("Weather forecast response was empty.");
+            var payload = await response.Content.ReadFromJsonAsync<OpenWeatherResponse>(cancellationToken: cancellationToken)
+                ?? throw new InvalidOperationException("Weather API response was empty.");
 
-            var current = forecast.Current
-                ?? throw new InvalidOperationException("Weather forecast did not include current conditions.");
+            var currentCondition = payload.Weather?.FirstOrDefault();
+            var observedAt = payload.Timestamp > 0
+                ? DateTimeOffset.FromUnixTimeSeconds(payload.Timestamp).UtcDateTime
+                : DateTime.UtcNow;
 
             return
             [
                 new UnifiedItem
                 {
                     Source = ProviderName,
-                    Title = $"Current weather in {location.Name}, {location.CountryCode}",
-                    Description = $"Temperature {current.Temperature} C, wind {current.WindSpeed} km/h, code {current.WeatherCode}.",
+                    Title = $"Current weather in {payload.Name}",
+                    Description = $"Temperature {payload.Main?.Temperature ?? 0} C, humidity {payload.Main?.Humidity ?? 0}%, condition {currentCondition?.Description ?? currentCondition?.Main ?? "Unknown"}.",
                     Category = "Weather",
-                    Url = $"https://open-meteo.com/en/docs?city={Uri.EscapeDataString(location.Name)}",
+                    Url = $"https://openweathermap.org/city/{payload.CityId}",
                     RelevanceScore = 0,
-                    Date = current.Time
+                    Date = observedAt
                 }
             ];
         }

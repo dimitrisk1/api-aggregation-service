@@ -25,6 +25,7 @@ namespace Core_Infrastructure.Extensions
 
             services.AddHttpClient<WeatherApiClient>(client =>
             {
+                client.BaseAddress = new Uri("https://api.openweathermap.org/data/2.5/");
                 client.Timeout = TimeSpan.FromSeconds(10);
                 client.DefaultRequestHeaders.Add("Accept", "application/json");
             })
@@ -43,6 +44,26 @@ namespace Core_Infrastructure.Extensions
             .AddPolicyHandler(PollyPolicies.CircuitBreakerPolicy())
             .AddPolicyHandler(PollyPolicies.TimeoutPolicy());
 
+            services.AddHttpClient<NewsApiClient>(client =>
+            {
+                client.BaseAddress = new Uri("https://newsapi.org/v2/");
+                client.Timeout = TimeSpan.FromSeconds(10);
+                client.DefaultRequestHeaders.Add("Accept", "application/json");
+            })
+            .AddPolicyHandler(PollyPolicies.RetryPolicy())
+            .AddPolicyHandler(PollyPolicies.CircuitBreakerPolicy())
+            .AddPolicyHandler(PollyPolicies.TimeoutPolicy());
+
+            services.AddHttpClient<SpotifyApiClient>(client =>
+            {
+                client.BaseAddress = new Uri("https://api.spotify.com/v1/");
+                client.Timeout = TimeSpan.FromSeconds(10);
+                client.DefaultRequestHeaders.Add("Accept", "application/json");
+            })
+            .AddPolicyHandler(PollyPolicies.RetryPolicy())
+            .AddPolicyHandler(PollyPolicies.CircuitBreakerPolicy())
+            .AddPolicyHandler(PollyPolicies.TimeoutPolicy());
+
             services.AddHttpClient<StackOverflowApiClient>(client =>
             {
                 client.BaseAddress = new Uri("https://api.stackexchange.com/2.3/");
@@ -55,6 +76,8 @@ namespace Core_Infrastructure.Extensions
 
             services.AddScoped<IExternalProvider>(sp => sp.GetRequiredService<WeatherApiClient>());
             services.AddScoped<IExternalProvider>(sp => sp.GetRequiredService<GitHubApiClient>());
+            services.AddScoped<IExternalProvider>(sp => sp.GetRequiredService<NewsApiClient>());
+            services.AddScoped<IExternalProvider>(sp => sp.GetRequiredService<SpotifyApiClient>());
             services.AddScoped<IExternalProvider>(sp => sp.GetRequiredService<StackOverflowApiClient>());
 
             services.AddHostedService<MetricsMonitorService>();

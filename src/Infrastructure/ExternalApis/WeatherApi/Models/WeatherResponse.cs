@@ -2,45 +2,39 @@ using System.Text.Json.Serialization;
 
 namespace Infrastructure.ExternalApis.WeatherApi.Models
 {
-    public class OpenMeteoGeocodingResponse
+    public class OpenWeatherResponse
     {
-        [JsonPropertyName("results")]
-        public List<OpenMeteoLocation>? Results { get; set; }
-    }
+        [JsonPropertyName("id")]
+        public long CityId { get; set; }
 
-    public class OpenMeteoLocation
-    {
         [JsonPropertyName("name")]
         public string Name { get; set; } = string.Empty;
 
-        [JsonPropertyName("country_code")]
-        public string CountryCode { get; set; } = string.Empty;
+        [JsonPropertyName("dt")]
+        public long Timestamp { get; set; }
 
-        [JsonPropertyName("latitude")]
-        public double Latitude { get; set; }
+        [JsonPropertyName("main")]
+        public OpenWeatherMain? Main { get; set; }
 
-        [JsonPropertyName("longitude")]
-        public double Longitude { get; set; }
+        [JsonPropertyName("weather")]
+        public List<OpenWeatherCondition>? Weather { get; set; }
     }
 
-    public class OpenMeteoForecastResponse
+    public class OpenWeatherMain
     {
-        [JsonPropertyName("current")]
-        public OpenMeteoCurrentWeather? Current { get; set; }
-    }
-
-    public class OpenMeteoCurrentWeather
-    {
-        [JsonPropertyName("time")]
-        public DateTime Time { get; set; }
-
-        [JsonPropertyName("temperature_2m")]
+        [JsonPropertyName("temp")]
         public double Temperature { get; set; }
 
-        [JsonPropertyName("weather_code")]
-        public int WeatherCode { get; set; }
+        [JsonPropertyName("humidity")]
+        public int Humidity { get; set; }
+    }
 
-        [JsonPropertyName("wind_speed_10m")]
-        public double WindSpeed { get; set; }
+    public class OpenWeatherCondition
+    {
+        [JsonPropertyName("main")]
+        public string? Main { get; set; }
+
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
     }
 }
