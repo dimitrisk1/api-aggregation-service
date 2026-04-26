@@ -52,7 +52,7 @@ namespace Application.Services
                     ErrorMessage = result.ErrorMessage
                 });
 
-                _metricsService.RecordMetric(result.Provider, result.Latency, result.IsSuccess);
+                _metricsService.RecordMetric(result.Provider, result.Latency, result.IsSuccess && !result.IsFallback);
             }
 
             stopwatch.Stop();

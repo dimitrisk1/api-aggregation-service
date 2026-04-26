@@ -80,7 +80,7 @@ namespace ApiAggregator.Test
             result.Providers.Should().ContainSingle(provider => provider.ProviderName == "StackOverflow" && provider.Status == "Failed");
 
             metricsService.Verify(service => service.RecordMetric("Weather", TimeSpan.FromMilliseconds(80), true), Times.Once);
-            metricsService.Verify(service => service.RecordMetric("GitHub", TimeSpan.FromMilliseconds(220), true), Times.Once);
+            metricsService.Verify(service => service.RecordMetric("GitHub", TimeSpan.FromMilliseconds(220), false), Times.Once);
             metricsService.Verify(service => service.RecordMetric("StackOverflow", TimeSpan.FromMilliseconds(350), false), Times.Once);
         }
 

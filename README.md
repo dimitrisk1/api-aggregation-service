@@ -121,12 +121,11 @@ Use the returned token as `Authorization: Bearer <token>` when calling protected
 
 `src/Core-Api/appsettings.json`
 
-- `Jwt:Enabled`: enables JWT validation when `true`
 - `Jwt:Key`, `Jwt:Issuer`, `Jwt:Audience`: JWT settings
 - `BackgroundService:IsActive`: enables anomaly monitoring
-- `BackgroundService:Timer`: monitor interval in seconds
+- `BackgroundService:Timer`: monitor interval in seconds, with a minimum effective interval of 15 seconds
 
-JWT is enabled in the current solution configuration. `GET /api/aggregate` and `GET /api/stats` both require a bearer token.
+JWT is enabled for the protected API surface. `GET /api/aggregate` and `GET /api/stats` both require a bearer token.
 
 ## Run
 

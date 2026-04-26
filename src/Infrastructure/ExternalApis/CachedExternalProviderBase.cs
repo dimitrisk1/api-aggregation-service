@@ -24,6 +24,16 @@ namespace Infrastructure.ExternalApis
             var stopwatch = Stopwatch.StartNew();
             var cacheKey = $"{ProviderName}:{query.Trim().ToLowerInvariant()}";
 
+            if (_cacheService.TryGetValue<List<UnifiedItem>>(cacheKey, out var cachedItems) && cachedItems is not null)
+            {
+                return new ProviderResult<IEnumerable<UnifiedItem>>
+                {
+                    IsSuccess = true,
+                    Data = cachedItems,
+                    Latency = stopwatch.Elapsed
+                };
+            }
+
             try
             {
                 var items = (await ExecuteCoreAsync(query, cancellationToken)).ToList();
@@ -35,6 +45,10 @@ namespace Infrastructure.ExternalApis
                     Data = items,
                     Latency = stopwatch.Elapsed
                 };
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
