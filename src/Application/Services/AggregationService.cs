@@ -1,5 +1,6 @@
 using Application.DTOs;
 using Application.Interfaces;
+using Application.Telemetry;
 using Domain.Entities;
 using Domain.Interfaces;
 using System.Diagnostics;
@@ -19,12 +20,18 @@ namespace Application.Services
 
         public async Task<AggregatedResponse> AggregateDataAsync(AggregationRequest request, CancellationToken cancellationToken)
         {
+            using var activity = AggregationTelemetry.ActivitySource.StartActivity("aggregate.request", ActivityKind.Internal);
+            activity?.SetTag("aggregation.query", request.Query);
+            activity?.SetTag("aggregation.source_filter", request.Source ?? string.Empty);
+            activity?.SetTag("aggregation.category_filter", request.Category ?? string.Empty);
+
             if (string.IsNullOrWhiteSpace(request.Query))
             {
-                throw new ArgumentException("Query is required.", nameof(request.Query));
+                return new AggregatedResponse();
             }
 
             var stopwatch = Stopwatch.StartNew();
+            AggregationTelemetry.AggregationRequests.Add(1);
             var results = await Task.WhenAll(
                 _providers.Select(provider => FetchAndMapAsync(provider, request.Query, cancellationToken)));
 
@@ -53,12 +60,19 @@ namespace Application.Services
                 });
 
                 _metricsService.RecordMetric(result.Provider, result.Latency, result.IsSuccess && !result.IsFallback);
+                AggregationTelemetry.ProviderExecutions.Add(
+                    1,
+                    new KeyValuePair<string, object?>("provider", result.Provider),
+                    new KeyValuePair<string, object?>("outcome", result.IsSuccess ? (result.IsFallback ? "fallback" : "success") : "failed"));
             }
 
             stopwatch.Stop();
             response.Items = ApplyFiltersAndSorting(allItems, request).ToList();
             response.TotalItems = response.Items.Count;
             response.TotalProcessingTimeMs = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 2);
+            AggregationTelemetry.AggregationDurationMs.Record(stopwatch.Elapsed.TotalMilliseconds);
+            activity?.SetTag("aggregation.total_items", response.TotalItems);
+            activity?.SetTag("aggregation.provider_count", response.Providers.Count);
 
             return response;
         }
